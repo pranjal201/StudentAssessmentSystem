@@ -40,6 +40,7 @@ The system uses a **relational database SQLITE** with the following core entitie
 - Password
 - Role
 - CreatedAt
+
 **Class**
 - Id  (GUID) PK
 - Name
@@ -55,6 +56,7 @@ The system uses a **relational database SQLITE** with the following core entitie
 - ClassId FK
 - SectionId FK
 - UserId FK
+- CreatedAt
 
 **Subjects**
 - Code (pk)
@@ -94,7 +96,7 @@ The system uses a **relational database SQLITE** with the following core entitie
 - ClassRank
 - UpdatedAt
 
-** TeacherSection**
+**TeacherSection**
 - TeacherId (FK userId for role teacher)
 - SectionId (FK section id for Section)
 
