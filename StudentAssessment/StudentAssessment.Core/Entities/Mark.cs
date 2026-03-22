@@ -9,7 +9,7 @@ namespace StudentAssessment.Core.Entities
     {
        public Guid Id {get; set;} 
        public Guid StudentId {get;set;}
-       public Guid SubjectId {get;set;}
+       public string SubjectCode {get;set;} = string.Empty;
        public Guid ExamId {get;set;}
        public decimal Score {get;set;}
        public string IdempotencyKey {get; set;} = string.Empty;
