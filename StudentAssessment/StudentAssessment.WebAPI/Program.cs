@@ -4,8 +4,8 @@ using Microsoft.EntityFrameworkCore;
 using Microsoft.IdentityModel.Tokens;
 using Microsoft.OpenApi.Models;
 using StudentAssessment.Application.Interfaces;
-using StudentAssessment.Core.Entities;
 using StudentAssessment.Infrastructure.Database;
+using StudentAssessment.Infrastructure.Data;
 using StudentAssessment.Infrastructure.Services;
 
 var builder = WebApplication.CreateBuilder(args);
@@ -16,6 +16,8 @@ builder.Services.AddDbContext<ApplicationDbContext>(option => option.UseSqlite(b
 // Register Repository and UnitOfWork
 builder.Services.AddScoped<IUnitOfWork, UnitOfWork>();
 builder.Services.AddScoped(typeof(IRepository<>), typeof(Repository<>));
+builder.Services.AddSingleton<IMarkSubmissionQueue>(_ => new MarkSubmissionQueue(1000));
+builder.Services.AddHostedService<MarkSubmissionBackgroundService>();
 
 // Register Authentication Services
 builder.Services.AddScoped<IAuthService, AuthService>();
@@ -99,40 +101,8 @@ using(var scope = app.Services.CreateScope())
     var authService = scope.ServiceProvider.GetRequiredService<IAuthService>();
     
     db.Database.EnsureCreated();
-    
-    // Seed test users if none exist
-    if (!db.User.Any())
-    {
-        var testAdmin = new User
-        {
-            Id = Guid.NewGuid(),
-            Username = "admin",
-            PasswordHash = authService.HashPassword("admin123"),
-            Role = StudentAssessment.Core.Enums.UserRole.Admin,
-            CreatedAt = DateTime.UtcNow
-        };
-        
-        var testTeacher = new User
-        {
-            Id = Guid.NewGuid(),
-            Username = "teacher",
-            PasswordHash = authService.HashPassword("teacher123"),
-            Role = StudentAssessment.Core.Enums.UserRole.Teacher,
-            CreatedAt = DateTime.UtcNow
-        };
-        
-        var testStudent = new User
-        {
-            Id = Guid.NewGuid(),
-            Username = "student",
-            PasswordHash = authService.HashPassword("student123"),
-            Role = StudentAssessment.Core.Enums.UserRole.Student,
-            CreatedAt = DateTime.UtcNow
-        };
-        
-        db.User.AddRange(testAdmin, testTeacher, testStudent);
-        db.SaveChanges();
-    }
+
+    await DevelopmentDataSeeder.SeedIfMissingAsync(db, authService);
 }
 // Configure the HTTP request pipeline.
 if (app.Environment.IsDevelopment())

@@ -28,6 +28,8 @@ namespace StudentAssessment.WebAPI.Controllers
         public async Task<ActionResult<IEnumerable<StudentResponse>>> GetAll([FromQuery] int pageNumber = 1, [FromQuery] int pageSize = 10)
         {
             var (students, total) = await _unitOfWork.Repository<Student>().GetPagedAsync(pageNumber, pageSize);
+            var classes = (await _unitOfWork.Repository<Class>().GetAllAsync()).ToDictionary(c => c.Id, c => c.Name);
+            var sections = (await _unitOfWork.Repository<Section>().GetAllAsync()).ToDictionary(s => s.Id, s => s.Name);
             
             var response = students.Select(s => new StudentResponse
             {
@@ -35,7 +37,9 @@ namespace StudentAssessment.WebAPI.Controllers
                 FirstName = s.FirstName,
                 LastName = s.LastName,
                 ClassId = s.ClassId,
+                ClassName = classes.GetValueOrDefault(s.ClassId, string.Empty),
                 SectionId = s.SectionId,
+                SectionName = sections.GetValueOrDefault(s.SectionId, string.Empty),
                 UserId = s.UserId,
                 CreatedAt = s.CreatedAt
             });
@@ -143,7 +147,9 @@ namespace StudentAssessment.WebAPI.Controllers
                     FirstName = createdStudent.FirstName,
                     LastName = createdStudent.LastName,
                     ClassId = createdStudent.ClassId,
+                    ClassName = @class.Name,
                     SectionId = createdStudent.SectionId,
+                    SectionName = section.Name,
                     UserId = createdStudent.UserId,
                     CreatedAt = createdStudent.CreatedAt
                 };
@@ -225,7 +231,9 @@ namespace StudentAssessment.WebAPI.Controllers
                     FirstName = updatedStudent.FirstName,
                     LastName = updatedStudent.LastName,
                     ClassId = updatedStudent.ClassId,
+                    ClassName = @class.Name,
                     SectionId = updatedStudent.SectionId,
+                    SectionName = section.Name,
                     UserId = updatedStudent.UserId,
                     CreatedAt = updatedStudent.CreatedAt
                 };

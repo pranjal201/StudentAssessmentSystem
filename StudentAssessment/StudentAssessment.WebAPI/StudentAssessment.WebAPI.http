@@ -1,6 +1,537 @@
-@StudentAssessment.WebAPI_HostAddress = http://localhost:5120
+### Configuration & Variables
+@host = http://localhost:5120
+@contentType = application/json
 
-GET {{StudentAssessment.WebAPI_HostAddress}}/weatherforecast/
-Accept: application/json
+# Auth Credentials for Testing
+@adminUsername = admin
+@adminPassword = admin123
+@teacherUsername = teacher
+@teacherPassword = teacher123
+@studentUsername = student
+@studentPassword = student123
 
 ###
+### ========== AUTHENTICATION ENDPOINTS ==========
+### Login as Admin
+POST {{host}}/api/auth/login
+Content-Type: {{contentType}}
+
+{
+  "username": "{{adminUsername}}",
+  "password": "{{adminPassword}}"
+}
+
+@save adminResponse
+@name Admin Login
+
+###
+### Login as Teacher
+POST {{host}}/api/auth/login
+Content-Type: {{contentType}}
+
+{
+  "username": "{{teacherUsername}}",
+  "password": "{{teacherPassword}}"
+}
+
+@save teacherResponse
+@name Teacher Login
+
+###
+### Login as Student
+POST {{host}}/api/auth/login
+Content-Type: {{contentType}}
+
+{
+  "username": "{{studentUsername}}",
+  "password": "{{studentPassword}}"
+}
+
+@save studentResponse
+@name Student Login
+
+###
+### Attempt Invalid Login (should fail)
+POST {{host}}/api/auth/login
+Content-Type: {{contentType}}
+
+{
+  "username": "invaliduser",
+  "password": "wrongpassword"
+}
+
+@name Invalid Login (Expected to fail)
+
+###
+### ========== CLASSES ENDPOINTS ==========
+### Get All Classes (Admin Only)
+GET {{host}}/api/classes
+Authorization: Bearer {{adminResponse.body.$.token}}
+Content-Type: {{contentType}}
+
+@save classesResponse
+@name Get All Classes
+
+###
+### Create a Class (Admin Only)
+POST {{host}}/api/classes
+Authorization: Bearer {{adminResponse.body.$.token}}
+Content-Type: {{contentType}}
+
+{
+  "name": "Grade 10-A",
+  "gradeLevel": 10
+}
+
+@save createClassResponse
+@name Create Class
+
+###
+### Get Class by ID
+GET {{host}}/api/classes/{{createClassResponse.body.$.id}}
+Authorization: Bearer {{adminResponse.body.$.token}}
+Content-Type: {{contentType}}
+
+@name Get Class by ID
+
+###
+### Update Class
+PUT {{host}}/api/classes/{{createClassResponse.body.$.id}}
+Authorization: Bearer {{adminResponse.body.$.token}}
+Content-Type: {{contentType}}
+
+{
+  "name": "Grade 10-A (Updated)",
+  "gradeLevel": 10
+}
+
+@name Update Class
+
+###
+### ========== SECTIONS ENDPOINTS ==========
+### Get Sections by Class
+GET {{host}}/api/sections/class/{{createClassResponse.body.$.id}}
+Authorization: Bearer {{adminResponse.body.$.token}}
+Content-Type: {{contentType}}
+
+@save sectionsResponse
+@name Get Sections by Class
+
+###
+### Create a Section (Admin Only)
+POST {{host}}/api/sections
+Authorization: Bearer {{adminResponse.body.$.token}}
+Content-Type: {{contentType}}
+
+{
+  "name": "Section A",
+  "classId": "{{createClassResponse.body.$.id}}"
+}
+
+@save createSectionResponse
+@name Create Section
+
+###
+### Get Section by ID
+GET {{host}}/api/sections/{{createSectionResponse.body.$.id}}
+Authorization: Bearer {{adminResponse.body.$.token}}
+Content-Type: {{contentType}}
+
+@name Get Section by ID
+
+###
+### Update Section
+PUT {{host}}/api/sections/{{createSectionResponse.body.$.id}}
+Authorization: Bearer {{adminResponse.body.$.token}}
+Content-Type: {{contentType}}
+
+{
+  "name": "Section A (Updated)",
+  "classId": "{{createClassResponse.body.$.id}}"
+}
+
+@name Update Section
+
+###
+### ========== STUDENTS ENDPOINTS ==========
+### Create a Student (Admin Only)
+POST {{host}}/api/students
+Authorization: Bearer {{adminResponse.body.$.token}}
+Content-Type: {{contentType}}
+
+{
+  "firstName": "John",
+  "lastName": "Doe",
+  "enrollmentNumber": "STU001",
+  "dateOfBirth": "2008-05-15",
+  "classId": "{{createClassResponse.body.$.id}}",
+  "sectionId": "{{createSectionResponse.body.$.id}}",
+  "userId": "00000000-0000-0000-0000-000000000000"
+}
+
+@save createStudentResponse
+@name Create Student
+
+###
+### Get All Students (Admin Only)
+GET {{host}}/api/students
+Authorization: Bearer {{adminResponse.body.$.token}}
+Content-Type: {{contentType}}
+
+@name Get All Students
+
+###
+### Get Student by ID
+GET {{host}}/api/students/{{createStudentResponse.body.$.id}}
+Authorization: Bearer {{adminResponse.body.$.token}}
+Content-Type: {{contentType}}
+
+@name Get Student by ID
+
+###
+### Update Student
+PUT {{host}}/api/students/{{createStudentResponse.body.$.id}}
+Authorization: Bearer {{adminResponse.body.$.token}}
+Content-Type: {{contentType}}
+
+{
+  "firstName": "John",
+  "lastName": "Smith",
+  "enrollmentNumber": "STU001",
+  "dateOfBirth": "2008-05-15",
+  "classId": "{{createClassResponse.body.$.id}}",
+  "sectionId": "{{createSectionResponse.body.$.id}}"
+}
+
+@name Update Student
+
+###
+### ========== SUBJECTS ENDPOINTS ==========
+### Get All Subjects (Admin, Teacher)
+GET {{host}}/api/subjects
+Authorization: Bearer {{adminResponse.body.$.token}}
+Content-Type: {{contentType}}
+
+@save subjectsResponse
+@name Get All Subjects
+
+###
+### Get Subject by Code
+GET {{host}}/api/subjects/MATH101
+Authorization: Bearer {{adminResponse.body.$.token}}
+Content-Type: {{contentType}}
+
+@name Get Subject by Code (will fail if not exist)
+
+###
+### Create a Subject (Admin Only)
+POST {{host}}/api/subjects
+Authorization: Bearer {{adminResponse.body.$.token}}
+Content-Type: {{contentType}}
+
+{
+  "code": "MATH101",
+  "name": "Mathematics",
+  "creditHours": 3
+}
+
+@save createSubjectResponse
+@name Create Subject
+
+###
+### Update Subject
+PUT {{host}}/api/subjects/MATH101
+Authorization: Bearer {{adminResponse.body.$.token}}
+Content-Type: {{contentType}}
+
+{
+  "name": "Advanced Mathematics",
+  "creditHours": 4
+}
+
+@name Update Subject
+
+###
+### ========== EXAMS ENDPOINTS ==========
+### Create an Exam (Admin Only)
+POST {{host}}/api/exams
+Authorization: Bearer {{adminResponse.body.$.token}}
+Content-Type: {{contentType}}
+
+{
+  "name": "Midterm Exam",
+  "examType": "Midterm",
+  "totalMarks": 100,
+  "passingMarks": 40,
+  "examDate": "2026-04-15",
+  "classId": "{{createClassResponse.body.$.id}}"
+}
+
+@save createExamResponse
+@name Create Exam
+
+###
+### Get All Exams (Admin, Teacher)
+GET {{host}}/api/exams
+Authorization: Bearer {{adminResponse.body.$.token}}
+Content-Type: {{contentType}}
+
+@name Get All Exams
+
+###
+### Get Exam by ID
+GET {{host}}/api/exams/{{createExamResponse.body.$.id}}
+Authorization: Bearer {{adminResponse.body.$.token}}
+Content-Type: {{contentType}}
+
+@name Get Exam by ID
+
+###
+### Get Exams by Class
+GET {{host}}/api/exams/class/{{createClassResponse.body.$.id}}
+Authorization: Bearer {{adminResponse.body.$.token}}
+Content-Type: {{contentType}}
+
+@name Get Exams by Class
+
+###
+### Update Exam
+PUT {{host}}/api/exams/{{createExamResponse.body.$.id}}
+Authorization: Bearer {{adminResponse.body.$.token}}
+Content-Type: {{contentType}}
+
+{
+  "name": "Midterm Exam (Updated)",
+  "examType": "Midterm",
+  "totalMarks": 100,
+  "passingMarks": 45,
+  "examDate": "2026-04-15",
+  "classId": "{{createClassResponse.body.$.id}}"
+}
+
+@name Update Exam
+
+###
+### ========== USERS ENDPOINTS ==========
+### Get All Users (Admin Only)
+GET {{host}}/api/users
+Authorization: Bearer {{adminResponse.body.$.token}}
+Content-Type: {{contentType}}
+
+@name Get All Users
+
+###
+### Create a New User (Admin Only)
+POST {{host}}/api/users
+Authorization: Bearer {{adminResponse.body.$.token}}
+Content-Type: {{contentType}}
+
+{
+  "username": "teacher2",
+  "password": "newteacher123",
+  "role": "Teacher"
+}
+
+@save createUserResponse
+@name Create New User
+
+###
+### Get User by ID
+GET {{host}}/api/users/{{createUserResponse.body.$.id}}
+Authorization: Bearer {{adminResponse.body.$.token}}
+Content-Type: {{contentType}}
+
+@name Get User by ID
+
+###
+### Assign Teacher to Section (Admin Only)
+POST {{host}}/api/users/{{createUserResponse.body.$.id}}/sections/{{createSectionResponse.body.$.id}}
+Authorization: Bearer {{adminResponse.body.$.token}}
+Content-Type: {{contentType}}
+
+@name Assign Teacher to Section
+
+###
+### Get Teacher's Sections
+GET {{host}}/api/users/{{createUserResponse.body.$.id}}/sections
+Authorization: Bearer {{adminResponse.body.$.token}}
+Content-Type: {{contentType}}
+
+@name Get Teacher's Sections
+
+###
+### Get Teachers in Section
+GET {{host}}/api/users/section/{{createSectionResponse.body.$.id}}/teachers
+Authorization: Bearer {{adminResponse.body.$.token}}
+Content-Type: {{contentType}}
+
+@name Get Teachers in Section
+
+###
+### Remove Teacher from Section (Admin Only)
+DELETE {{host}}/api/users/{{createUserResponse.body.$.id}}/sections/{{createSectionResponse.body.$.id}}
+Authorization: Bearer {{adminResponse.body.$.token}}
+Content-Type: {{contentType}}
+
+@name Remove Teacher from Section
+
+###
+### ========== MARKS ENDPOINTS ==========
+### Submit Marks (Teacher Only)
+POST {{host}}/api/marks
+Authorization: Bearer {{teacherResponse.body.$.token}}
+Content-Type: {{contentType}}
+
+{
+  "studentId": "{{createStudentResponse.body.$.id}}",
+  "examId": "{{createExamResponse.body.$.id}}",
+  "subjectCode": "MATH101",
+  "marksObtained": 85,
+  "idempotencyKey": "mark-submit-001"
+}
+
+@save createMarksResponse
+@name Submit Marks
+
+###
+### Get All Marks
+GET {{host}}/api/marks
+Authorization: Bearer {{adminResponse.body.$.token}}
+Content-Type: {{contentType}}
+
+@name Get All Marks
+
+###
+### Get Marks by ID
+GET {{host}}/api/marks/{{createMarksResponse.body.$.id}}
+Authorization: Bearer {{adminResponse.body.$.token}}
+Content-Type: {{contentType}}
+
+@name Get Marks by ID
+
+###
+### Get Marks for Student's Exam
+GET {{host}}/api/marks/student/{{createStudentResponse.body.$.id}}/exam/{{createExamResponse.body.$.id}}
+Authorization: Bearer {{adminResponse.body.$.token}}
+Content-Type: {{contentType}}
+
+@name Get Marks for Student's Exam
+
+###
+### Update Marks
+PUT {{host}}/api/marks/{{createMarksResponse.body.$.id}}
+Authorization: Bearer {{adminResponse.body.$.token}}
+Content-Type: {{contentType}}
+
+{
+  "studentId": "{{createStudentResponse.body.$.id}}",
+  "examId": "{{createExamResponse.body.$.id}}",
+  "subjectCode": "MATH101",
+  "marksObtained": 90
+}
+
+@name Update Marks
+
+###
+### ========== RANKINGS ENDPOINTS ==========
+### Get Class Rankings for Exam
+GET {{host}}/api/rankings/class/{{createClassResponse.body.$.id}}/exam/{{createExamResponse.body.$.id}}
+Authorization: Bearer {{adminResponse.body.$.token}}
+Content-Type: {{contentType}}
+
+@name Get Class Rankings
+
+###
+### Get Section Rankings for Exam
+GET {{host}}/api/rankings/section/{{createSectionResponse.body.$.id}}/exam/{{createExamResponse.body.$.id}}
+Authorization: Bearer {{adminResponse.body.$.token}}
+Content-Type: {{contentType}}
+
+@name Get Section Rankings
+
+###
+### Get Top Students in Class
+GET {{host}}/api/rankings/class/{{createClassResponse.body.$.id}}/exam/{{createExamResponse.body.$.id}}/top/5
+Authorization: Bearer {{adminResponse.body.$.token}}
+Content-Type: {{contentType}}
+
+@name Get Top 5 Students in Class
+
+###
+### Get Student's Exam Ranking
+GET {{host}}/api/rankings/student/{{createStudentResponse.body.$.id}}/exam/{{createExamResponse.body.$.id}}
+Authorization: Bearer {{adminResponse.body.$.token}}
+Content-Type: {{contentType}}
+
+@name Get Student Ranking
+
+###
+### ========== AUTHORIZATION CHECKS ==========
+### Teacher accessing Class Create (should fail)
+POST {{host}}/api/classes
+Authorization: Bearer {{teacherResponse.body.$.token}}
+Content-Type: {{contentType}}
+
+{
+  "name": "Grade 11",
+  "gradeLevel": 11
+}
+
+@name Teacher Creating Class (Expected to Fail - 403)
+
+###
+### Student accessing Get All Users (should fail)
+GET {{host}}/api/users
+Authorization: Bearer {{studentResponse.body.$.token}}
+Content-Type: {{contentType}}
+
+@name Student Accessing Users (Expected to Fail - 403)
+
+###
+### ========== CLEANUP (Optional - Delete Created Records) ==========
+### Delete Student
+DELETE {{host}}/api/students/{{createStudentResponse.body.$.id}}
+Authorization: Bearer {{adminResponse.body.$.token}}
+Content-Type: {{contentType}}
+
+@name Delete Student
+
+###
+### Delete Exam
+DELETE {{host}}/api/exams/{{createExamResponse.body.$.id}}
+Authorization: Bearer {{adminResponse.body.$.token}}
+Content-Type: {{contentType}}
+
+@name Delete Exam
+
+###
+### Delete Subject
+DELETE {{host}}/api/subjects/MATH101
+Authorization: Bearer {{adminResponse.body.$.token}}
+Content-Type: {{contentType}}
+
+@name Delete Subject
+
+###
+### Delete Section
+DELETE {{host}}/api/sections/{{createSectionResponse.body.$.id}}
+Authorization: Bearer {{adminResponse.body.$.token}}
+Content-Type: {{contentType}}
+
+@name Delete Section
+
+###
+### Delete Class
+DELETE {{host}}/api/classes/{{createClassResponse.body.$.id}}
+Authorization: Bearer {{adminResponse.body.$.token}}
+Content-Type: {{contentType}}
+
+@name Delete Class
+
+###
+### Delete User
+DELETE {{host}}/api/users/{{createUserResponse.body.$.id}}
+Authorization: Bearer {{adminResponse.body.$.token}}
+Content-Type: {{contentType}}
+
+@name Delete User

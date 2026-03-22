@@ -6,6 +6,7 @@ namespace StudentAssessment.Application.DTOs
         public string SubjectCode { get; set; } = string.Empty;
         public Guid ExamId { get; set; }
         public decimal Score { get; set; }
+        public string? RequestId { get; set; }
     }
 
     public class MarkResponse
@@ -40,5 +41,17 @@ namespace StudentAssessment.Application.DTOs
         public string? SubjectCode { get; set; }
         public int PageNumber { get; set; } = 1;
         public int PageSize { get; set; } = 10;
+    }
+
+    public class MarkSubmissionResponse
+    {
+        public Guid JobId { get; set; }
+        public string Status { get; set; } = string.Empty;
+        public string CorrelationId { get; set; } = string.Empty;
+        public int RetryCount { get; set; }
+        public DateTime CreatedAt { get; set; }
+        public DateTime? ProcessedAt { get; set; }
+        public DateTime? NextRetryAt { get; set; }
+        public bool QueuedInMemory { get; set; }
     }
 }

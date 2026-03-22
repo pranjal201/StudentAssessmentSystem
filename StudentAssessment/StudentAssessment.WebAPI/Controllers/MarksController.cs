@@ -1,9 +1,11 @@
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using System.Security.Claims;
+using System.Text.Json;
 using StudentAssessment.Application.DTOs;
 using StudentAssessment.Application.Interfaces;
 using StudentAssessment.Core.Entities;
+using StudentAssessment.Core.Enums;
 
 namespace StudentAssessment.WebAPI.Controllers
 {
@@ -13,10 +15,13 @@ namespace StudentAssessment.WebAPI.Controllers
     public class MarksController : ControllerBase
     {
         private readonly IUnitOfWork _unitOfWork;
+        private readonly IMarkSubmissionQueue _submissionQueue;
+        private readonly JsonSerializerOptions _jsonOptions = new(JsonSerializerDefaults.Web);
 
-        public MarksController(IUnitOfWork unitOfWork)
+        public MarksController(IUnitOfWork unitOfWork, IMarkSubmissionQueue submissionQueue)
         {
             _unitOfWork = unitOfWork;
+            _submissionQueue = submissionQueue;
         }
 
         /// <summary>
@@ -117,8 +122,6 @@ namespace StudentAssessment.WebAPI.Controllers
                 if (request.Score < 0)
                     return BadRequest(new { message = "Score cannot be negative" });
 
-                await _unitOfWork.BeginTransactionAsync();
-
                 // Verify student exists
                 var student = await _unitOfWork.Repository<Student>().GetByIdAsync(request.StudentId);
                 if (student == null)
@@ -134,59 +137,57 @@ namespace StudentAssessment.WebAPI.Controllers
                 if (exam == null)
                     return NotFound(new { message = "Exam not found" });
 
-                // Check if mark already exists
-                var existingMark = await _unitOfWork.Repository<Mark>().FirstOrDefaultAsync(m =>
-                    m.StudentId == request.StudentId &&
-                    m.SubjectCode == request.SubjectCode &&
-                    m.ExamId == request.ExamId
-                );
-
-                if (existingMark != null)
+                if (student.ClassId != exam.ClassId)
                 {
-                    // Update existing mark
-                    existingMark.Score = request.Score;
-                    existingMark.UpdatedAt = DateTime.UtcNow;
-                    await _unitOfWork.Repository<Mark>().UpdateAsync(existingMark);
-                    await _unitOfWork.CommitAsync();
-
-                    return AcceptedAtAction(nameof(GetById), new { id = existingMark.Id }, new
-                    {
-                        id = existingMark.Id,
-                        status = "updated",
-                        message = "Mark submitted for processing"
-                    });
+                    return BadRequest(new { message = "Exam does not belong to the student's class" });
                 }
 
-                // Create new mark
-                var mark = new Mark
+                var correlationId = string.IsNullOrWhiteSpace(request.RequestId)
+                    ? Guid.NewGuid().ToString()
+                    : request.RequestId.Trim();
+
+                var existingJob = await _unitOfWork.Repository<MarkSubmission>()
+                    .FirstOrDefaultAsync(j => j.CorrelationId == correlationId);
+
+                if (existingJob != null)
+                {
+                    var existingQueued = _submissionQueue.TryQueue(existingJob.Id);
+                    return AcceptedAtAction(nameof(GetJobStatus), new { jobId = existingJob.Id }, MapJobResponse(existingJob, existingQueued));
+                }
+
+                var job = new MarkSubmission
                 {
                     Id = Guid.NewGuid(),
-                    StudentId = request.StudentId,
-                    SubjectCode = request.SubjectCode,
-                    ExamId = request.ExamId,
-                    Score = request.Score,
-                    IdempotencyKey = Guid.NewGuid().ToString(),
-                    CreatedAt = DateTime.UtcNow,
-                    UpdatedAt = DateTime.UtcNow
+                    Payload = JsonSerializer.Serialize(request, _jsonOptions),
+                    Status = JobStatus.Pending,
+                    RetryCount = 0,
+                    CorrelationId = correlationId,
+                    CreatedAt = DateTime.UtcNow
                 };
 
-                var createdMark = await _unitOfWork.Repository<Mark>().AddAsync(mark);
-                await _unitOfWork.CommitAsync();
+                await _unitOfWork.Repository<MarkSubmission>().AddAsync(job);
+                var queuedInMemory = _submissionQueue.TryQueue(job.Id);
 
-                // In a real scenario, you would queue this for async processing
-                // For now, we're returning 202 Accepted to indicate async processing
-                return AcceptedAtAction(nameof(GetById), new { id = createdMark.Id }, new
-                {
-                    id = createdMark.Id,
-                    status = "pending",
-                    message = "Mark submitted for processing"
-                });
+                return AcceptedAtAction(nameof(GetJobStatus), new { jobId = job.Id }, MapJobResponse(job, queuedInMemory));
             }
             catch (Exception ex)
             {
                 await _unitOfWork.RollbackAsync();
                 return StatusCode(StatusCodes.Status500InternalServerError, new { message = "An error occurred", error = ex.Message });
             }
+        }
+
+        [HttpGet("jobs/{jobId:guid}")]
+        [Authorize(Roles = "Teacher")]
+        [ProducesResponseType(StatusCodes.Status200OK)]
+        [ProducesResponseType(StatusCodes.Status404NotFound)]
+        public async Task<ActionResult<MarkSubmissionResponse>> GetJobStatus(Guid jobId)
+        {
+            var job = await _unitOfWork.Repository<MarkSubmission>().GetByIdAsync(jobId);
+            if (job == null)
+                return NotFound(new { message = "Mark submission job not found" });
+
+            return Ok(MapJobResponse(job, false));
         }
 
         /// <summary>
@@ -324,6 +325,21 @@ namespace StudentAssessment.WebAPI.Controllers
 
             var currentStudent = await GetCurrentStudentAsync();
             return currentStudent != null && currentStudent.Id == studentId;
+        }
+
+        private static MarkSubmissionResponse MapJobResponse(MarkSubmission job, bool queuedInMemory)
+        {
+            return new MarkSubmissionResponse
+            {
+                JobId = job.Id,
+                Status = job.Status.ToString(),
+                CorrelationId = job.CorrelationId,
+                RetryCount = job.RetryCount,
+                CreatedAt = job.CreatedAt,
+                ProcessedAt = job.ProcessedAt,
+                NextRetryAt = job.NextRetryAt,
+                QueuedInMemory = queuedInMemory
+            };
         }
     }
 }
