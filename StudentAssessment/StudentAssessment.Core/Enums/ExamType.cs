@@ -7,9 +7,8 @@ namespace StudentAssessment.Core.Enums
 {
     public enum ExamType
     {
-        Quaterly,
+        Quarterly,
         HalfYearly,
-        Annual
-        
+        Final
     }
 }

@@ -4,6 +4,7 @@ using System.Linq;
 using System.Linq.Expressions;
 using System.Threading.Tasks;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.EntityFrameworkCore.Storage;
 using StudentAssessment.Application.Interfaces;
 
 namespace StudentAssessment.Infrastructure.Database
@@ -163,6 +164,7 @@ namespace StudentAssessment.Infrastructure.Database
     {
         private readonly ApplicationDbContext _context;
         private readonly Dictionary<string, object> _repositories;
+        private IDbContextTransaction? _currentTransaction;
 
         public UnitOfWork(ApplicationDbContext context)
         {
@@ -200,7 +202,12 @@ namespace StudentAssessment.Infrastructure.Database
         /// </summary>
         public async Task BeginTransactionAsync()
         {
-            await _context.Database.BeginTransactionAsync();
+            if (_currentTransaction != null)
+            {
+                return;
+            }
+
+            _currentTransaction = await _context.Database.BeginTransactionAsync();
         }
 
         /// <summary>
@@ -208,15 +215,25 @@ namespace StudentAssessment.Infrastructure.Database
         /// </summary>
         public async Task CommitAsync()
         {
+            if (_currentTransaction == null)
+            {
+                await _context.SaveChangesAsync();
+                return;
+            }
+
             try
             {
                 await _context.SaveChangesAsync();
-                await _context.Database.CommitTransactionAsync();
+                await _currentTransaction.CommitAsync();
             }
             catch
             {
                 await RollbackAsync();
                 throw;
+            }
+            finally
+            {
+                await DisposeTransactionAsync();
             }
         }
 
@@ -225,7 +242,30 @@ namespace StudentAssessment.Infrastructure.Database
         /// </summary>
         public async Task RollbackAsync()
         {
-            await _context.Database.RollbackTransactionAsync();
+            if (_currentTransaction == null)
+            {
+                return;
+            }
+
+            try
+            {
+                await _currentTransaction.RollbackAsync();
+            }
+            finally
+            {
+                await DisposeTransactionAsync();
+            }
+        }
+
+        private async Task DisposeTransactionAsync()
+        {
+            if (_currentTransaction == null)
+            {
+                return;
+            }
+
+            await _currentTransaction.DisposeAsync();
+            _currentTransaction = null;
         }
 
         /// <summary>
@@ -233,6 +273,7 @@ namespace StudentAssessment.Infrastructure.Database
         /// </summary>
         public void Dispose()
         {
+            _currentTransaction?.Dispose();
             _context?.Dispose();
         }
     }

@@ -1,4 +1,6 @@
+using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
+using System.Security.Claims;
 using StudentAssessment.Application.DTOs;
 using StudentAssessment.Application.Interfaces;
 using StudentAssessment.Core.Entities;
@@ -7,6 +9,7 @@ namespace StudentAssessment.WebAPI.Controllers
 {
     [ApiController]
     [Route("api/[controller]")]
+    [Authorize]
     public class StudentsController : ControllerBase
     {
         private readonly IUnitOfWork _unitOfWork;
@@ -20,6 +23,7 @@ namespace StudentAssessment.WebAPI.Controllers
         /// Get all students
         /// </summary>
         [HttpGet]
+        [Authorize(Roles = "Admin")]
         [ProducesResponseType(StatusCodes.Status200OK)]
         public async Task<ActionResult<IEnumerable<StudentResponse>>> GetAll([FromQuery] int pageNumber = 1, [FromQuery] int pageSize = 10)
         {
@@ -45,11 +49,15 @@ namespace StudentAssessment.WebAPI.Controllers
         [HttpGet("{id}")]
         [ProducesResponseType(StatusCodes.Status200OK)]
         [ProducesResponseType(StatusCodes.Status404NotFound)]
+        [ProducesResponseType(StatusCodes.Status403Forbidden)]
         public async Task<ActionResult<StudentDetailResponse>> GetById(Guid id)
         {
             var student = await _unitOfWork.Repository<Student>().GetByIdAsync(id);
             if (student == null)
                 return NotFound(new { message = "Student not found" });
+
+            if (HttpContext.User.IsInRole("Student") && student.UserId?.ToString() != GetCurrentUserId())
+                return Forbid();
 
             var response = new StudentDetailResponse
             {
@@ -70,6 +78,7 @@ namespace StudentAssessment.WebAPI.Controllers
         /// Create a new student
         /// </summary>
         [HttpPost]
+        [Authorize(Roles = "Admin")]
         [ProducesResponseType(StatusCodes.Status201Created)]
         [ProducesResponseType(StatusCodes.Status400BadRequest)]
         [ProducesResponseType(StatusCodes.Status404NotFound)]
@@ -152,6 +161,7 @@ namespace StudentAssessment.WebAPI.Controllers
         /// Update a student
         /// </summary>
         [HttpPut("{id}")]
+        [Authorize(Roles = "Admin")]
         [ProducesResponseType(StatusCodes.Status200OK)]
         [ProducesResponseType(StatusCodes.Status404NotFound)]
         [ProducesResponseType(StatusCodes.Status400BadRequest)]
@@ -233,6 +243,7 @@ namespace StudentAssessment.WebAPI.Controllers
         /// Delete a student
         /// </summary>
         [HttpDelete("{id}")]
+        [Authorize(Roles = "Admin")]
         [ProducesResponseType(StatusCodes.Status204NoContent)]
         [ProducesResponseType(StatusCodes.Status404NotFound)]
         [ProducesResponseType(StatusCodes.Status500InternalServerError)]
@@ -256,6 +267,11 @@ namespace StudentAssessment.WebAPI.Controllers
                 await _unitOfWork.RollbackAsync();
                 return StatusCode(StatusCodes.Status500InternalServerError, new { message = "An error occurred", error = ex.Message });
             }
+        }
+
+        private string? GetCurrentUserId()
+        {
+            return HttpContext.User.FindFirstValue(ClaimTypes.NameIdentifier);
         }
     }
 }

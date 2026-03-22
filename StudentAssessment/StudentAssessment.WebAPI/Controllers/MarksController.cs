@@ -1,4 +1,6 @@
+using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
+using System.Security.Claims;
 using StudentAssessment.Application.DTOs;
 using StudentAssessment.Application.Interfaces;
 using StudentAssessment.Core.Entities;
@@ -7,6 +9,7 @@ namespace StudentAssessment.WebAPI.Controllers
 {
     [ApiController]
     [Route("api/[controller]")]
+    [Authorize]
     public class MarksController : ControllerBase
     {
         private readonly IUnitOfWork _unitOfWork;
@@ -21,8 +24,21 @@ namespace StudentAssessment.WebAPI.Controllers
         /// </summary>
         [HttpGet]
         [ProducesResponseType(StatusCodes.Status200OK)]
+        [ProducesResponseType(StatusCodes.Status403Forbidden)]
         public async Task<ActionResult<IEnumerable<MarkResponse>>> GetMarks([FromQuery] Guid? studentId, [FromQuery] Guid? examId, [FromQuery] string? subjectCode, [FromQuery] int pageNumber = 1, [FromQuery] int pageSize = 10)
         {
+            if (HttpContext.User.IsInRole("Student"))
+            {
+                var currentStudent = await GetCurrentStudentAsync();
+                if (currentStudent == null)
+                    return Forbid();
+
+                if (studentId.HasValue && studentId.Value != currentStudent.Id)
+                    return Forbid();
+
+                studentId = currentStudent.Id;
+            }
+
             var predicate = (System.Linq.Expressions.Expression<System.Func<Mark, bool>>)(m =>
                 (studentId == null || m.StudentId == studentId) &&
                 (examId == null || m.ExamId == examId) &&
@@ -51,11 +67,15 @@ namespace StudentAssessment.WebAPI.Controllers
         [HttpGet("{id}")]
         [ProducesResponseType(StatusCodes.Status200OK)]
         [ProducesResponseType(StatusCodes.Status404NotFound)]
+        [ProducesResponseType(StatusCodes.Status403Forbidden)]
         public async Task<ActionResult<MarkResponse>> GetById(Guid id)
         {
             var mark = await _unitOfWork.Repository<Mark>().GetByIdAsync(id);
             if (mark == null)
                 return NotFound(new { message = "Mark not found" });
+
+            if (!await CanAccessStudentAsync(mark.StudentId))
+                return Forbid();
 
             var response = new MarkResponse
             {
@@ -75,6 +95,7 @@ namespace StudentAssessment.WebAPI.Controllers
         /// Submit marks (async processing)
         /// </summary>
         [HttpPost]
+        [Authorize(Roles = "Teacher")]
         [ProducesResponseType(StatusCodes.Status202Accepted)]
         [ProducesResponseType(StatusCodes.Status400BadRequest)]
         [ProducesResponseType(StatusCodes.Status404NotFound)]
@@ -172,6 +193,7 @@ namespace StudentAssessment.WebAPI.Controllers
         /// Update a mark
         /// </summary>
         [HttpPut("{id}")]
+        [Authorize(Roles = "Teacher,Admin")]
         [ProducesResponseType(StatusCodes.Status200OK)]
         [ProducesResponseType(StatusCodes.Status404NotFound)]
         [ProducesResponseType(StatusCodes.Status400BadRequest)]
@@ -228,6 +250,7 @@ namespace StudentAssessment.WebAPI.Controllers
         /// Delete a mark
         /// </summary>
         [HttpDelete("{id}")]
+        [Authorize(Roles = "Admin")]
         [ProducesResponseType(StatusCodes.Status204NoContent)]
         [ProducesResponseType(StatusCodes.Status404NotFound)]
         public async Task<IActionResult> Delete(Guid id)
@@ -246,8 +269,12 @@ namespace StudentAssessment.WebAPI.Controllers
         [HttpGet("student/{studentId}/exam/{examId}")]
         [ProducesResponseType(StatusCodes.Status200OK)]
         [ProducesResponseType(StatusCodes.Status404NotFound)]
+        [ProducesResponseType(StatusCodes.Status403Forbidden)]
         public async Task<ActionResult<IEnumerable<MarkResponse>>> GetStudentExamMarks(Guid studentId, Guid examId)
         {
+            if (!await CanAccessStudentAsync(studentId))
+                return Forbid();
+
             // Verify student exists
             var student = await _unitOfWork.Repository<Student>().GetByIdAsync(studentId);
             if (student == null)
@@ -274,6 +301,29 @@ namespace StudentAssessment.WebAPI.Controllers
             });
 
             return Ok(response);
+        }
+
+        private string? GetCurrentUserId()
+        {
+            return HttpContext.User.FindFirstValue(ClaimTypes.NameIdentifier);
+        }
+
+        private async Task<Student?> GetCurrentStudentAsync()
+        {
+            var currentUserId = GetCurrentUserId();
+            if (!Guid.TryParse(currentUserId, out var userId))
+                return null;
+
+            return await _unitOfWork.Repository<Student>().FirstOrDefaultAsync(s => s.UserId == userId);
+        }
+
+        private async Task<bool> CanAccessStudentAsync(Guid studentId)
+        {
+            if (!HttpContext.User.IsInRole("Student"))
+                return true;
+
+            var currentStudent = await GetCurrentStudentAsync();
+            return currentStudent != null && currentStudent.Id == studentId;
         }
     }
 }

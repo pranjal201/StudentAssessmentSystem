@@ -1,3 +1,4 @@
+using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using StudentAssessment.Application.DTOs;
 using StudentAssessment.Application.Interfaces;
@@ -7,6 +8,7 @@ namespace StudentAssessment.WebAPI.Controllers
 {
     [ApiController]
     [Route("api/[controller]")]
+    [Authorize(Roles = "Admin")]
     public class SectionsController : ControllerBase
     {
         private readonly IUnitOfWork _unitOfWork;
