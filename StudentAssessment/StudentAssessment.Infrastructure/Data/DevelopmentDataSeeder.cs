@@ -3,6 +3,7 @@ using StudentAssessment.Application.Interfaces;
 using StudentAssessment.Core.Entities;
 using StudentAssessment.Core.Enums;
 using StudentAssessment.Infrastructure.Database;
+using StudentAssessment.Infrastructure.Services;
 
 namespace StudentAssessment.Infrastructure.Data;
 
@@ -11,6 +12,7 @@ public static class DevelopmentDataSeeder
     private static readonly string[] ClassNames = ["9th", "10th"];
     private static readonly string[] SectionNames = ["A", "B"];
     private static readonly ExamType[] ExamTypes = [ExamType.Quarterly, ExamType.HalfYearly, ExamType.Final];
+    private const int StudentsPerSection = 10;
     private static readonly (string Code, string Name)[] Subjects =
     [
         ("ENG", "English"),
@@ -38,6 +40,7 @@ public static class DevelopmentDataSeeder
         await SeedStudentsAsync(db, authService, sections);
         var exams = await SeedExamsAsync(db, classes);
         await SeedMarksAsync(db, exams);
+        await SeedRankingsAsync(db, exams);
     }
 
     private static bool NeedsSeedData(ApplicationDbContext db)
@@ -50,6 +53,8 @@ public static class DevelopmentDataSeeder
         var teacherSectionCount = db.TeacherSection.Count();
         var examCount = db.Exam.Count();
         var markCount = db.Mark.Count();
+        var rankingCount = db.Ranking.Count();
+        var expectedRankingCount = ClassNames.Length * SectionNames.Length * StudentsPerSection * ExamTypes.Length;
 
         return classCount < 2
             || sectionCount < 4
@@ -58,7 +63,8 @@ public static class DevelopmentDataSeeder
             || studentCount < 40
             || teacherSectionCount < 20
             || examCount < 6
-            || markCount < 600;
+            || markCount < 600
+            || rankingCount < expectedRankingCount;
     }
 
     private static async Task SeedAdminAsync(ApplicationDbContext db, IAuthService authService)
@@ -320,6 +326,86 @@ public static class DevelopmentDataSeeder
                         IdempotencyKey = Guid.NewGuid().ToString(),
                         CreatedAt = DateTime.UtcNow,
                         UpdatedAt = DateTime.UtcNow
+                    });
+                }
+            }
+        }
+
+        await db.SaveChangesAsync();
+    }
+
+    private static async Task SeedRankingsAsync(ApplicationDbContext db, Dictionary<string, Exam> exams)
+    {
+        var subjectCodes = Subjects.Select(s => s.Code).ToList();
+
+        foreach (var exam in exams.Values)
+        {
+            var students = db.Student
+                .Where(s => s.ClassId == exam.ClassId)
+                .Select(s => new RankingSnapshot
+                {
+                    StudentId = s.Id,
+                    SectionId = s.SectionId
+                })
+                .ToList();
+
+            if (students.Count == 0)
+            {
+                continue;
+            }
+
+            var marks = db.Mark
+                .Where(m => m.ExamId == exam.Id)
+                .Select(m => new
+                {
+                    m.StudentId,
+                    m.SubjectCode,
+                    m.Score
+                })
+                .ToList();
+
+            var markLookup = marks.ToDictionary(
+                m => (m.StudentId, m.SubjectCode),
+                m => m.Score);
+
+            foreach (var student in students)
+            {
+                decimal total = 0;
+                foreach (var subjectCode in subjectCodes)
+                {
+                    if (markLookup.TryGetValue((student.StudentId, subjectCode), out var score))
+                    {
+                        total += score;
+                    }
+                }
+
+                student.TotalMarks = total;
+            }
+
+            RankingCalculator.AssignRanks(students);
+
+            var existingRankings = db.Ranking.Where(r => r.ExamId == exam.Id).ToDictionary(r => r.StudentId);
+            var now = DateTime.UtcNow;
+
+            foreach (var student in students)
+            {
+                if (existingRankings.TryGetValue(student.StudentId, out var ranking))
+                {
+                    ranking.TotalMarks = student.TotalMarks;
+                    ranking.ClassRank = student.ClassRank;
+                    ranking.SectionRank = student.SectionRank;
+                    ranking.UpdatedAt = now;
+                }
+                else
+                {
+                    db.Ranking.Add(new Ranking
+                    {
+                        StudentId = student.StudentId,
+                        ExamId = exam.Id,
+                        TotalMarks = student.TotalMarks,
+                        ClassRank = student.ClassRank,
+                        SectionRank = student.SectionRank,
+                        UpdatedAt = now
                     });
                 }
             }
