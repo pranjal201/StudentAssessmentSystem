@@ -225,7 +225,7 @@ public class MarkSubmissionBackgroundService : BackgroundService
 
         var students = await db.Student
             .Where(s => s.ClassId == exam.ClassId)
-            .Select(s => new StudentRankingSnapshot
+            .Select(s => new RankingSnapshot
             {
                 StudentId = s.Id,
                 SectionId = s.SectionId
@@ -276,16 +276,7 @@ public class MarkSubmissionBackgroundService : BackgroundService
             student.TotalMarks = total;
         }
 
-        ApplyCompetitionRanks(
-            students.OrderByDescending(s => s.TotalMarks).ThenBy(s => s.StudentId).ToList(),
-            (student, rank) => student.ClassRank = rank);
-
-        foreach (var sectionGroup in students.GroupBy(s => s.SectionId))
-        {
-            ApplyCompetitionRanks(
-                sectionGroup.OrderByDescending(s => s.TotalMarks).ThenBy(s => s.StudentId).ToList(),
-                (student, rank) => student.SectionRank = rank);
-        }
+        RankingCalculator.AssignRanks(students);
 
         var existingRankings = await db.Ranking
             .Where(r => r.ExamId == examId)
@@ -316,34 +307,5 @@ public class MarkSubmissionBackgroundService : BackgroundService
         }
 
         await db.SaveChangesAsync(cancellationToken);
-    }
-
-    private static void ApplyCompetitionRanks(
-        List<StudentRankingSnapshot> orderedStudents,
-        Action<StudentRankingSnapshot, int> assignRank)
-    {
-        decimal? previousTotal = null;
-        var currentRank = 0;
-
-        for (var i = 0; i < orderedStudents.Count; i++)
-        {
-            var student = orderedStudents[i];
-            if (previousTotal == null || student.TotalMarks != previousTotal.Value)
-            {
-                currentRank = i + 1;
-                previousTotal = student.TotalMarks;
-            }
-
-            assignRank(student, currentRank);
-        }
-    }
-
-    private sealed class StudentRankingSnapshot
-    {
-        public Guid StudentId { get; init; }
-        public Guid SectionId { get; init; }
-        public decimal TotalMarks { get; set; }
-        public int SectionRank { get; set; }
-        public int ClassRank { get; set; }
     }
 }
