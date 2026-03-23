@@ -1,5 +1,11 @@
 namespace StudentAssessment.Application.DTOs
 {
+    public enum MarkSubmissionOperation
+    {
+        Upsert = 0,
+        Delete = 1
+    }
+
     public class CreateMarkRequest
     {
         public Guid StudentId { get; set; }
@@ -7,6 +13,15 @@ namespace StudentAssessment.Application.DTOs
         public Guid ExamId { get; set; }
         public decimal Score { get; set; }
         public string? RequestId { get; set; }
+    }
+
+    public class MarkSubmissionPayload
+    {
+        public Guid StudentId { get; set; }
+        public string SubjectCode { get; set; } = string.Empty;
+        public Guid ExamId { get; set; }
+        public decimal? Score { get; set; }
+        public MarkSubmissionOperation Operation { get; set; } = MarkSubmissionOperation.Upsert;
     }
 
     public class MarkResponse

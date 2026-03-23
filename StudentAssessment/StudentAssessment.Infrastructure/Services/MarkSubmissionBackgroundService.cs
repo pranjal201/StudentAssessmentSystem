@@ -119,7 +119,7 @@ public class MarkSubmissionBackgroundService : BackgroundService
 
         try
         {
-            var request = JsonSerializer.Deserialize<CreateMarkRequest>(job.Payload, _jsonOptions)
+            var request = JsonSerializer.Deserialize<MarkSubmissionPayload>(job.Payload, _jsonOptions)
                 ?? throw new InvalidOperationException("Mark submission payload is invalid.");
 
             var examId = await ProcessMarkAsync(db, request, job.CorrelationId, cancellationToken);
@@ -153,7 +153,7 @@ public class MarkSubmissionBackgroundService : BackgroundService
 
     private static async Task<Guid> ProcessMarkAsync(
         ApplicationDbContext db,
-        CreateMarkRequest request,
+        MarkSubmissionPayload request,
         string correlationId,
         CancellationToken cancellationToken)
     {
@@ -176,24 +176,37 @@ public class MarkSubmissionBackgroundService : BackgroundService
             m.SubjectCode == request.SubjectCode &&
             m.ExamId == request.ExamId, cancellationToken);
 
-        if (existingMark != null)
+        if (request.Operation == MarkSubmissionOperation.Delete)
         {
-            existingMark.Score = request.Score;
-            existingMark.UpdatedAt = DateTime.UtcNow;
+            if (existingMark != null)
+            {
+                db.Mark.Remove(existingMark);
+            }
         }
         else
         {
-            db.Mark.Add(new Mark
+            var score = request.Score
+                ?? throw new InvalidOperationException("Score is required for mark upsert.");
+
+            if (existingMark != null)
             {
-                Id = Guid.NewGuid(),
-                StudentId = student.Id,
-                SubjectCode = subject.Code,
-                ExamId = exam.Id,
-                Score = request.Score,
-                IdempotencyKey = correlationId,
-                CreatedAt = DateTime.UtcNow,
-                UpdatedAt = DateTime.UtcNow
-            });
+                existingMark.Score = score;
+                existingMark.UpdatedAt = DateTime.UtcNow;
+            }
+            else
+            {
+                db.Mark.Add(new Mark
+                {
+                    Id = Guid.NewGuid(),
+                    StudentId = student.Id,
+                    SubjectCode = subject.Code,
+                    ExamId = exam.Id,
+                    Score = score,
+                    IdempotencyKey = correlationId,
+                    CreatedAt = DateTime.UtcNow,
+                    UpdatedAt = DateTime.UtcNow
+                });
+            }
         }
 
         await db.SaveChangesAsync(cancellationToken);

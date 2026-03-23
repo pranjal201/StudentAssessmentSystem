@@ -105,7 +105,7 @@ namespace StudentAssessment.WebAPI.Controllers
         [ProducesResponseType(StatusCodes.Status400BadRequest)]
         [ProducesResponseType(StatusCodes.Status404NotFound)]
         [ProducesResponseType(StatusCodes.Status500InternalServerError)]
-        public async Task<ActionResult> SubmitMarks([FromBody] CreateMarkRequest request)
+        public async Task<ActionResult<MarkSubmissionResponse>> SubmitMarks([FromBody] CreateMarkRequest request)
         {
             try
             {
@@ -155,20 +155,16 @@ namespace StudentAssessment.WebAPI.Controllers
                     return AcceptedAtAction(nameof(GetJobStatus), new { jobId = existingJob.Id }, MapJobResponse(existingJob, existingQueued));
                 }
 
-                var job = new MarkSubmission
+                var payload = new MarkSubmissionPayload
                 {
-                    Id = Guid.NewGuid(),
-                    Payload = JsonSerializer.Serialize(request, _jsonOptions),
-                    Status = JobStatus.Pending,
-                    RetryCount = 0,
-                    CorrelationId = correlationId,
-                    CreatedAt = DateTime.UtcNow
+                    StudentId = request.StudentId,
+                    SubjectCode = request.SubjectCode.Trim(),
+                    ExamId = request.ExamId,
+                    Score = request.Score,
+                    Operation = MarkSubmissionOperation.Upsert
                 };
 
-                await _unitOfWork.Repository<MarkSubmission>().AddAsync(job);
-                var queuedInMemory = _submissionQueue.TryQueue(job.Id);
-
-                return AcceptedAtAction(nameof(GetJobStatus), new { jobId = job.Id }, MapJobResponse(job, queuedInMemory));
+                return await QueueMarkSubmissionAsync(payload, correlationId);
             }
             catch (Exception ex)
             {
@@ -195,18 +191,16 @@ namespace StudentAssessment.WebAPI.Controllers
         /// </summary>
         [HttpPut("{id}")]
         [Authorize(Roles = "Teacher,Admin")]
-        [ProducesResponseType(StatusCodes.Status200OK)]
+        [ProducesResponseType(StatusCodes.Status202Accepted)]
         [ProducesResponseType(StatusCodes.Status404NotFound)]
         [ProducesResponseType(StatusCodes.Status400BadRequest)]
         [ProducesResponseType(StatusCodes.Status500InternalServerError)]
-        public async Task<ActionResult<MarkResponse>> Update(Guid id, [FromBody] CreateMarkRequest request)
+        public async Task<ActionResult<MarkSubmissionResponse>> Update(Guid id, [FromBody] CreateMarkRequest request)
         {
             try
             {
                 if (request.Score < 0)
                     return BadRequest(new { message = "Score cannot be negative" });
-
-                await _unitOfWork.BeginTransactionAsync();
 
                 var mark = await _unitOfWork.Repository<Mark>().GetByIdAsync(id);
                 if (mark == null)
@@ -221,24 +215,25 @@ namespace StudentAssessment.WebAPI.Controllers
                 if (exam == null)
                     return NotFound(new { message = "Exam not found" });
 
-                mark.Score = request.Score;
-                mark.UpdatedAt = DateTime.UtcNow;
-
-                var updatedMark = await _unitOfWork.Repository<Mark>().UpdateAsync(mark);
-                await _unitOfWork.CommitAsync();
-
-                var response = new MarkResponse
+                if (request.SubjectCode != mark.SubjectCode || request.ExamId != mark.ExamId || request.StudentId != Guid.Empty && request.StudentId != mark.StudentId)
                 {
-                    Id = updatedMark.Id,
-                    StudentId = updatedMark.StudentId,
-                    SubjectCode = updatedMark.SubjectCode,
-                    ExamId = updatedMark.ExamId,
-                    Score = updatedMark.Score,
-                    CreatedAt = updatedMark.CreatedAt,
-                    UpdatedAt = updatedMark.UpdatedAt
+                    return BadRequest(new { message = "Mark identity cannot be changed. Only score updates are supported." });
+                }
+
+                var correlationId = string.IsNullOrWhiteSpace(request.RequestId)
+                    ? $"mark-update:{id}:{request.Score}"
+                    : request.RequestId.Trim();
+
+                var payload = new MarkSubmissionPayload
+                {
+                    StudentId = mark.StudentId,
+                    SubjectCode = mark.SubjectCode,
+                    ExamId = mark.ExamId,
+                    Score = request.Score,
+                    Operation = MarkSubmissionOperation.Upsert
                 };
 
-                return Ok(response);
+                return await QueueMarkSubmissionAsync(payload, correlationId);
             }
             catch (Exception ex)
             {
@@ -252,16 +247,32 @@ namespace StudentAssessment.WebAPI.Controllers
         /// </summary>
         [HttpDelete("{id}")]
         [Authorize(Roles = "Admin")]
-        [ProducesResponseType(StatusCodes.Status204NoContent)]
+        [ProducesResponseType(StatusCodes.Status202Accepted)]
         [ProducesResponseType(StatusCodes.Status404NotFound)]
-        public async Task<IActionResult> Delete(Guid id)
+        [ProducesResponseType(StatusCodes.Status500InternalServerError)]
+        public async Task<ActionResult<MarkSubmissionResponse>> Delete(Guid id)
         {
-            var mark = await _unitOfWork.Repository<Mark>().GetByIdAsync(id);
-            if (mark == null)
-                return NotFound(new { message = "Mark not found" });
+            try
+            {
+                var mark = await _unitOfWork.Repository<Mark>().GetByIdAsync(id);
+                if (mark == null)
+                    return NotFound(new { message = "Mark not found" });
 
-            await _unitOfWork.Repository<Mark>().DeleteAsync(mark);
-            return NoContent();
+                var payload = new MarkSubmissionPayload
+                {
+                    StudentId = mark.StudentId,
+                    SubjectCode = mark.SubjectCode,
+                    ExamId = mark.ExamId,
+                    Operation = MarkSubmissionOperation.Delete
+                };
+
+                return await QueueMarkSubmissionAsync(payload, $"mark-delete:{id}");
+            }
+            catch (Exception ex)
+            {
+                await _unitOfWork.RollbackAsync();
+                return StatusCode(StatusCodes.Status500InternalServerError, new { message = "An error occurred", error = ex.Message });
+            }
         }
 
         /// <summary>
@@ -325,6 +336,35 @@ namespace StudentAssessment.WebAPI.Controllers
 
             var currentStudent = await GetCurrentStudentAsync();
             return currentStudent != null && currentStudent.Id == studentId;
+        }
+
+        private async Task<ActionResult<MarkSubmissionResponse>> QueueMarkSubmissionAsync(
+            MarkSubmissionPayload payload,
+            string correlationId)
+        {
+            var existingJob = await _unitOfWork.Repository<MarkSubmission>()
+                .FirstOrDefaultAsync(j => j.CorrelationId == correlationId);
+
+            if (existingJob != null)
+            {
+                var existingQueued = _submissionQueue.TryQueue(existingJob.Id);
+                return AcceptedAtAction(nameof(GetJobStatus), new { jobId = existingJob.Id }, MapJobResponse(existingJob, existingQueued));
+            }
+
+            var job = new MarkSubmission
+            {
+                Id = Guid.NewGuid(),
+                Payload = JsonSerializer.Serialize(payload, _jsonOptions),
+                Status = JobStatus.Pending,
+                RetryCount = 0,
+                CorrelationId = correlationId,
+                CreatedAt = DateTime.UtcNow
+            };
+
+            await _unitOfWork.Repository<MarkSubmission>().AddAsync(job);
+            var queuedInMemory = _submissionQueue.TryQueue(job.Id);
+
+            return AcceptedAtAction(nameof(GetJobStatus), new { jobId = job.Id }, MapJobResponse(job, queuedInMemory));
         }
 
         private static MarkSubmissionResponse MapJobResponse(MarkSubmission job, bool queuedInMemory)
